@@ -57,6 +57,9 @@ DEFAULT_JOINT_ANGLES = np.array([
     -0.1, 1.0, -1.5,
 ], dtype=np.float32)
 
+KP = np.array([20, 20, 40, 20, 20, 40, 20, 20, 40, 20, 20, 40], dtype=np.float32)
+KD = np.array([ 1,  1,  2,  1,  1,  2,  1,  1,  2,  1,  1,  2], dtype=np.float32)
+
 OBS_LEN = 48
 BASE_LIN_VEL = slice(0, 3)
 BASE_ANG_VEL = slice(3, 6)
@@ -168,17 +171,18 @@ class DataLogger:
 
 
 class Go2DeployNode(Node):
-    def __init__(self, policy_net, obs_mask, device, kp, kd, control_dt, standup_duration,
-                 n_intermediate_steps=4):
+    def __init__(self, policy_net, obs_mask, device, control_dt, standup_duration,
+                 n_intermediate_steps=4, record=False):
         super().__init__('go2_deploy')
         self.policy_net = policy_net
         self.obs_mask = obs_mask
         self.device = device
-        self.kp = kp
-        self.kd = kd
+        self.kp = KP
+        self.kd = KD
         self.standup_duration = standup_duration
         self.n_intermediate_steps = n_intermediate_steps
         self.control_dt = control_dt
+        self.record = record
 
         self.state = State.IDLE
         self.latest_msg = None
@@ -224,6 +228,8 @@ class Go2DeployNode(Node):
         self.get_logger().info(f'State: {labels[self.state]}')
 
     def _start_logging(self):
+        if not self.record:
+            return
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         log_dir = os.path.join('log', ts)
         self.data_logger = DataLogger(log_dir)
@@ -404,25 +410,21 @@ def keyboard_thread(node):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--policy_path', type=str, default="/workspace/policy.pt")
-    parser.add_argument('--kp', type=float, default=40.0)
-    parser.add_argument('--kd', type=float, default=1.0)
     parser.add_argument('--control_dt', type=float, default=0.02)
-    parser.add_argument('--n_intermediate_steps', type=int, default=4)
+    parser.add_argument('--n_intermediate_steps', type=int, default=10)
     parser.add_argument('--standup_duration', type=float, default=2.0)
+    parser.add_argument('--record', action='store_true', default=False)
     parser.add_argument('--device', type=str, default='cpu')
     args = parser.parse_args()
 
     print(f'Loading policy from {args.policy_path}')
     policy_net, obs_mask = load_policy(args.policy_path, args.device)
 
-    kp = np.full(NUM_MOTORS, args.kp, dtype=np.float32)
-    kd = np.full(NUM_MOTORS, args.kd, dtype=np.float32)
-
     rclpy.init()
     node = Go2DeployNode(
         policy_net, obs_mask, args.device,
-        kp, kd, args.control_dt, args.standup_duration,
-        args.n_intermediate_steps)
+        args.control_dt, args.standup_duration,
+        args.n_intermediate_steps, args.record)
 
     print('\n--- Keyboard Controls ---')
     print('  s : stand up')
