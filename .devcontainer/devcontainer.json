@@ -1,0 +1,45 @@
+{
+  "name": "unitree-mujoco-ros2",
+  "dockerFile": "../Dockerfile",
+  "runArgs": [
+    "--privileged",
+    "--network=host",
+    "--gpus=all"
+  ],
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "mounts": [
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.bash_history,target=/home/ubuntu/.bash_history,type=bind",
+    // share x11 socket
+    "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind",
+    "source=${localEnv:XAUTHORITY},target=/root/.Xauthority,type=bind"
+    // share wayland socket 1
+    // "source=${localEnv:XDG_RUNTIME_DIR}/${localEnv:WAYLAND_DISPLAY},target=/tmp/${localEnv:WAYLAND_DISPLAY},type=bind"
+  ],
+  "remoteEnv": {
+    "XDG_RUNTIME_DIR": "/tmp",
+    "DISPLAY": "${localEnv:DISPLAY}",
+    // share wayland environment
+    // "QT_QPA_PLATFORM": "wayland",
+    // "WAYLAND_DISPLAY": "${localEnv:WAYLAND_DISPLAY}",
+    // "XDG_SESSION_TYPE": "wayland",
+    // enable nvidia graphics
+    // "__NV_PRIME_RENDER_OFFLOAD": "1",
+    // "__GLX_VENDOR_LIBRARY_NAME": "nvidia"
+  }, 
+  "customizations": {
+    "jetbrains": {
+      "settings": {
+        "com.intellij:app:HttpConfigurable.use_proxy_pac": true
+      }
+    },
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "flyfly6.terminal-in-status-bar",
+        "ranch-hand-robotics.rde-pack"
+      ]
+    }
+  }
+}

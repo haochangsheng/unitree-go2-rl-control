@@ -1,0 +1,21 @@
+default:
+  image: docker:cli
+  services:
+    - docker:dind
+  before_script:
+    - docker info
+
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+
+build:
+  stage: build
+  tags:
+    - docker-privileged
+  script:
+    - docker build -t go2-mujoco . --provenance=false
+    - docker image tag go2-mujoco registry.rtsc.uni-saarland.de/rtsc/go2-mujoco:latest
+    - echo "$DOCKER_PASSWORD" | docker login registry.rtsc.uni-saarland.de -u $DOCKER_USERNAME --password-stdin
+    - docker image push --all-tags registry.rtsc.uni-saarland.de/rtsc/go2-mujoco
+  rules:
+    - if: $CI_COMMIT_BRANCH == 'main'
