@@ -1,0 +1,3 @@
+#!/bin/sh
+export CYCLONEDDS_URI='<CycloneDDS><Domain><General><AllowMulticast>true</AllowMulticast><Interfaces><NetworkInterface address="192.168.123.0" /></Interfaces></General></Domain></CycloneDDS>'
+export dds_prompt='go2robot'
