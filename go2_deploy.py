@@ -294,16 +294,16 @@ class Go2DeployNode(Node):
         torques = self.kp * (target_pos - joint_pos) - self.kd * joint_vel
         return np.clip(torques, -EFFORT_LIMIT, EFFORT_LIMIT)
 
-    def _make_torque_cmd(self, torques_rl):
+    def _make_torque_cmd(self, targer_q):
         cmd = LowCmd()
         for i in range(NUM_MOTORS):
             motor = MotorCmd()
-            motor.q = 0.0
+            motor.q = float(targer_q[i])
             motor.dq = 0.0
-            motor.kp = 0.0
-            motor.kd = 0.0
+            motor.kp = float(KP[i])
+            motor.kd = float(KD[i])
             motor.mode = 1
-            motor.tau = float(torques_rl[i])
+            motor.tau = 0.0
             cmd.motor_cmd[RL_TO_MJ[i]] = motor
         cmd.crc = CRC().Crc(cmd)
         return cmd
@@ -349,7 +349,6 @@ class Go2DeployNode(Node):
             return
 
         if self.state == State.IDLE:
-            _, self.joint_vel_filter = self._get_joint_state_rl(self.latest_msg)
             self.cmd_pub.publish(self._zero_torque_cmd())
 
         elif self.state == State.STAND_UP:
@@ -357,21 +356,13 @@ class Go2DeployNode(Node):
             alpha = min(elapsed / self.standup_duration, 1.0)
             alpha = 3 * alpha**2 - 2 * alpha**3
             target = (1 - alpha) * self.standup_start_pos + alpha * DEFAULT_JOINT_ANGLES
-            joint_pos, joint_vel = self._get_joint_state_rl(self.latest_msg)
-            joint_vel = (1 - FILTER) * self.joint_vel_filter + FILTER * joint_vel
-            torques = self._compute_torque(target, joint_pos, joint_vel)
-            self.cmd_pub.publish(self._make_torque_cmd(torques))
-            self.joint_vel_filter = joint_vel
+            self.cmd_pub.publish(self._make_torque_cmd(target))
             if elapsed >= self.standup_duration:
                 self.state = State.STANDING
                 self._print_status()
 
         elif self.state == State.STANDING:
-            joint_pos, joint_vel = self._get_joint_state_rl(self.latest_msg)
-            joint_vel = (1 - FILTER) * self.joint_vel_filter + FILTER * joint_vel
-            torques = self._compute_torque(DEFAULT_JOINT_ANGLES, joint_pos, joint_vel)
-            self.cmd_pub.publish(self._make_torque_cmd(torques))
-            self.joint_vel_filter = joint_vel
+            self.cmd_pub.publish(self._make_torque_cmd(DEFAULT_JOINT_ANGLES))
 
         elif self.state == State.RL:
             if self.step_counter % self.n_intermediate_steps == 0:
@@ -385,19 +376,16 @@ class Go2DeployNode(Node):
                 self.prev_raw_action = self.current_raw_action
 
             target = self.current_raw_action * 0.25 + DEFAULT_JOINT_ANGLES
-            joint_pos, joint_vel = self._get_joint_state_rl(self.latest_msg)
-            joint_vel = (1 - FILTER) * self.joint_vel_filter + FILTER * joint_vel
-            torques = self._compute_torque(target, joint_pos, joint_vel)
-            self.cmd_pub.publish(self._make_torque_cmd(torques))
-            self.joint_vel_filter = joint_vel
+            self.cmd_pub.publish(self._make_torque_cmd(target))
 
             # Log state and cmd
             if self.data_logger is not None:
                 t = time.monotonic() - self.rl_start_time
                 quat = np.array(self.latest_msg.imu_state.quaternion, dtype=np.float32)
                 gyro = np.array(self.latest_msg.imu_state.gyroscope, dtype=np.float32)
+                joint_pos, joint_vel = self._get_joint_state_rl(self.latest_msg)
                 self.data_logger.log_state(t, quat, gyro, joint_pos, joint_vel)
-                self.data_logger.log_cmd(t, self.current_raw_action, torques)
+                self.data_logger.log_cmd(t, self.current_raw_action, target)
 
             self.step_counter += 1
 
@@ -421,7 +409,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--policy_path', type=str, default="/workspace/policy.pt")
     parser.add_argument('--control_dt', type=float, default=0.02)
-    parser.add_argument('--n_intermediate_steps', type=int, default=10)
+    parser.add_argument('--n_intermediate_steps', type=int, default=4)
     parser.add_argument('--standup_duration', type=float, default=2.0)
     parser.add_argument('--record', action='store_true', default=False)
     parser.add_argument('--device', type=str, default='cpu')
