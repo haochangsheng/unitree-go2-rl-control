@@ -57,8 +57,10 @@ DEFAULT_JOINT_ANGLES = np.array([
     -0.1, 1.0, -1.5,
 ], dtype=np.float32)
 
-KP = np.array([20, 20, 40, 20, 20, 40, 20, 20, 40, 20, 20, 40], dtype=np.float32)
-KD = np.array([ 1,  1,  2,  1,  1,  2,  1,  1,  2,  1,  1,  2], dtype=np.float32)
+KP = np.array([40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40], dtype=np.float32)
+KD = np.array([ 1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1], dtype=np.float32)
+
+FILTER = 0.1
 
 OBS_LEN = 48
 BASE_LIN_VEL = slice(0, 3)
@@ -187,6 +189,7 @@ class Go2DeployNode(Node):
         self.state = State.IDLE
         self.latest_msg = None
         self.prev_raw_action = np.zeros(NUM_MOTORS, dtype=np.float32)
+        self.joint_vel_filter = np.zeros(NUM_MOTORS, dtype=np.float32)
         self.cmd_vel = np.zeros(3, dtype=np.float32)
         self.cmd_vel[0] = 0.5
 
@@ -346,6 +349,7 @@ class Go2DeployNode(Node):
             return
 
         if self.state == State.IDLE:
+            _, self.joint_vel_filter = self._get_joint_state_rl(self.latest_msg)
             self.cmd_pub.publish(self._zero_torque_cmd())
 
         elif self.state == State.STAND_UP:
@@ -354,16 +358,20 @@ class Go2DeployNode(Node):
             alpha = 3 * alpha**2 - 2 * alpha**3
             target = (1 - alpha) * self.standup_start_pos + alpha * DEFAULT_JOINT_ANGLES
             joint_pos, joint_vel = self._get_joint_state_rl(self.latest_msg)
+            joint_vel = (1 - FILTER) * self.joint_vel_filter + FILTER * joint_vel
             torques = self._compute_torque(target, joint_pos, joint_vel)
             self.cmd_pub.publish(self._make_torque_cmd(torques))
+            self.joint_vel_filter = joint_vel
             if elapsed >= self.standup_duration:
                 self.state = State.STANDING
                 self._print_status()
 
         elif self.state == State.STANDING:
             joint_pos, joint_vel = self._get_joint_state_rl(self.latest_msg)
+            joint_vel = (1 - FILTER) * self.joint_vel_filter + FILTER * joint_vel
             torques = self._compute_torque(DEFAULT_JOINT_ANGLES, joint_pos, joint_vel)
             self.cmd_pub.publish(self._make_torque_cmd(torques))
+            self.joint_vel_filter = joint_vel
 
         elif self.state == State.RL:
             if self.step_counter % self.n_intermediate_steps == 0:
@@ -378,8 +386,10 @@ class Go2DeployNode(Node):
 
             target = self.current_raw_action * 0.25 + DEFAULT_JOINT_ANGLES
             joint_pos, joint_vel = self._get_joint_state_rl(self.latest_msg)
+            joint_vel = (1 - FILTER) * self.joint_vel_filter + FILTER * joint_vel
             torques = self._compute_torque(target, joint_pos, joint_vel)
             self.cmd_pub.publish(self._make_torque_cmd(torques))
+            self.joint_vel_filter = joint_vel
 
             # Log state and cmd
             if self.data_logger is not None:
