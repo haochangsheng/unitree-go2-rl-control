@@ -58,9 +58,7 @@ DEFAULT_JOINT_ANGLES = np.array([
 ], dtype=np.float32)
 
 KP = np.array([40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40], dtype=np.float32)
-KD = np.array([ 1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1], dtype=np.float32)
-
-FILTER = 0.1
+KD = np.array([ 1,  1,  2,  1,  1,  2,  1,  1,  2,  1,  1,  2], dtype=np.float32)
 
 OBS_LEN = 48
 BASE_LIN_VEL = slice(0, 3)
@@ -189,7 +187,6 @@ class Go2DeployNode(Node):
         self.state = State.IDLE
         self.latest_msg = None
         self.prev_raw_action = np.zeros(NUM_MOTORS, dtype=np.float32)
-        self.joint_vel_filter = np.zeros(NUM_MOTORS, dtype=np.float32)
         self.cmd_vel = np.zeros(3, dtype=np.float32)
         self.cmd_vel[0] = 0.5
 

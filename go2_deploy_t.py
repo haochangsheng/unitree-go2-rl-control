@@ -58,7 +58,7 @@ DEFAULT_JOINT_ANGLES = np.array([
 ], dtype=np.float32)
 
 KP = np.array([40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40], dtype=np.float32)
-KD = np.array([ 1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1], dtype=np.float32)
+KD = np.array([ 1,  1,  2,  1,  1,  2,  1,  1,  2,  1,  1,  2], dtype=np.float32)
 
 OBS_LEN = 48
 BASE_LIN_VEL = slice(0, 3)
@@ -291,15 +291,15 @@ class Go2DeployNode(Node):
         return pos, vel
 
     def _compute_torque(self, target_pos, joint_pos, joint_vel):
-        torques = self.kp * (target_pos - joint_pos) - self.kd * joint_vel
+        torques = self.kp * (target_pos - joint_pos) / 10.0 # - self.kd * joint_vel
         return np.clip(torques, -EFFORT_LIMIT, EFFORT_LIMIT)
 
-    def _make_torque_cmd(self, torques_rl):
+    def _make_torque_cmd(self, torques_rl, current_pos, current_vel):
         cmd = LowCmd()
         for i in range(NUM_MOTORS):
             motor = MotorCmd()
-            motor.q = PosStopF
-            motor.dq = VelStopF
+            motor.q = float(current_pos[i])
+            motor.dq = float(current_vel[i])
             motor.kp = 0.0
             motor.kd = 0.0
             motor.mode = 1
@@ -308,12 +308,25 @@ class Go2DeployNode(Node):
         cmd.crc = CRC().Crc(cmd)
         return cmd
 
+    def _make_torque_cmd_test(self, torques_rl, current_pos):
+        cmd = LowCmd()
+        motor = MotorCmd()
+        motor.q = 0.0 #float(current_pos[2])
+        motor.dq = 0.0 #VelStopF
+        motor.kp = 0.0
+        motor.kd = 0.0
+        motor.mode = 1
+        motor.tau = float(torques_rl[2])
+        cmd.motor_cmd[RL_TO_MJ[2]] = motor
+        cmd.crc = CRC().Crc(cmd)
+        return cmd
+
     def _zero_torque_cmd(self):
         cmd = LowCmd()
         for i in range(NUM_MOTORS):
             motor = MotorCmd()
-            motor.q = 0.0
-            motor.dq = 0.0
+            motor.q = PosStopF
+            motor.dq = VelStopF
             motor.kp = 0.0
             motor.kd = 0.0
             motor.mode = 0
@@ -349,7 +362,10 @@ class Go2DeployNode(Node):
             return
 
         if self.state == State.IDLE:
-            self.cmd_pub.publish(self._zero_torque_cmd())
+            # self.cmd_pub.publish(self._zero_torque_cmd())
+            joint_pos, joint_vel = self._get_joint_state_rl(self.latest_msg)
+            torques = self._compute_torque(DEFAULT_JOINT_ANGLES, joint_pos, joint_vel)
+            self.cmd_pub.publish(self._make_torque_cmd_test(torques, joint_pos))
 
         elif self.state == State.STAND_UP:
             elapsed = time.monotonic() - self.standup_start_time
@@ -358,15 +374,22 @@ class Go2DeployNode(Node):
             target = (1 - alpha) * self.standup_start_pos + alpha * DEFAULT_JOINT_ANGLES
             joint_pos, joint_vel = self._get_joint_state_rl(self.latest_msg)
             torques = self._compute_torque(target, joint_pos, joint_vel)
-            self.cmd_pub.publish(self._make_torque_cmd(torques))
+            self.cmd_pub.publish(self._make_torque_cmd(torques, joint_pos, joint_vel))
             if elapsed >= self.standup_duration:
                 self.state = State.STANDING
                 self._print_status()
 
+            if self.data_logger is not None:
+                t = time.monotonic() - self.rl_start_time
+                quat = np.array(self.latest_msg.imu_state.quaternion, dtype=np.float32)
+                gyro = np.array(self.latest_msg.imu_state.gyroscope, dtype=np.float32)
+                self.data_logger.log_state(t, quat, gyro, joint_pos, joint_vel)
+                self.data_logger.log_cmd(t, self.current_raw_action, torques)
+
         elif self.state == State.STANDING:
             joint_pos, joint_vel = self._get_joint_state_rl(self.latest_msg)
             torques = self._compute_torque(DEFAULT_JOINT_ANGLES, joint_pos, joint_vel)
-            self.cmd_pub.publish(self._make_torque_cmd(torques))
+            self.cmd_pub.publish(self._make_torque_cmd(torques, joint_pos, joint_vel))
 
         elif self.state == State.RL:
             if self.step_counter % self.n_intermediate_steps == 0:
@@ -382,7 +405,7 @@ class Go2DeployNode(Node):
             target = self.current_raw_action * 0.25 + DEFAULT_JOINT_ANGLES
             joint_pos, joint_vel = self._get_joint_state_rl(self.latest_msg)
             torques = self._compute_torque(target, joint_pos, joint_vel)
-            self.cmd_pub.publish(self._make_torque_cmd(torques))
+            self.cmd_pub.publish(self._make_torque_cmd(torques, joint_pos, joint_vel))
 
             # Log state and cmd
             if self.data_logger is not None:
@@ -416,7 +439,7 @@ def main():
     parser.add_argument('--control_dt', type=float, default=0.02)
     parser.add_argument('--n_intermediate_steps', type=int, default=10)
     parser.add_argument('--standup_duration', type=float, default=2.0)
-    parser.add_argument('--record', action='store_true', default=False)
+    parser.add_argument('--record', action='store_true', default=True)
     parser.add_argument('--device', type=str, default='cpu')
     args = parser.parse_args()
 
